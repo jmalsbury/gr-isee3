@@ -2,7 +2,7 @@
 ##################################################
 # Gnuradio Python Flow Graph
 # Title: Uplink
-# Generated: Sun May  4 11:04:01 2014
+# Generated: Thu May 15 09:36:43 2014
 ##################################################
 
 from gnuradio import analog
@@ -18,8 +18,8 @@ from gnuradio.wxgui import scopesink2
 from grc_gnuradio import wxgui as grc_wxgui
 from optparse import OptionParser
 import SimpleXMLRPCServer
+import isee3
 import math
-import numpy
 import threading
 import wx
 
@@ -44,9 +44,11 @@ class uplink(grc_wxgui.top_block_gui):
         self.f1 = f1 = 7500.0
         self.f0 = f0 = 9000.0
         self.deviation = deviation = (f0- f1)/2.0
+        self.variable_0 = variable_0 = 0
         self.subcarrier_freq = subcarrier_freq = f1+deviation
         self.samp_rate = samp_rate = 250000
         self.pre_resamp_rate = pre_resamp_rate = sym_rate*samp_per_sym
+        self.invert = invert = 1
         self.doppler = doppler = 0
 
         ##################################################
@@ -58,7 +60,7 @@ class uplink(grc_wxgui.top_block_gui):
         self.nb.AddPage(grc_wxgui.Panel(self.nb), "AM Demod")
         self.nb.AddPage(grc_wxgui.Panel(self.nb), "Tx Data vs Clock")
         self.Add(self.nb)
-        self.xmlrpc_server_0 = SimpleXMLRPCServer.SimpleXMLRPCServer(("", 12345), allow_none=True)
+        self.xmlrpc_server_0 = SimpleXMLRPCServer.SimpleXMLRPCServer(("", 52003), allow_none=True)
         self.xmlrpc_server_0.register_instance(self)
         threading.Thread(target=self.xmlrpc_server_0.serve_forever).start()
         self.wxgui_scopesink2_0 = scopesink2.scope_sink_c(
@@ -108,13 +110,17 @@ class uplink(grc_wxgui.top_block_gui):
         self.carrier = analog.sig_source_c(pre_resamp_rate, analog.GR_COS_WAVE, doppler, 1*backoff, 0)
         self.blocks_vector_source_x_0 = blocks.vector_source_f(tuple([1] * (samp_per_sym/4) +  [0] * (samp_per_sym/4) +  [0] * (samp_per_sym/4) +  [1] * (samp_per_sym/4)), True, 1, [])
         self.blocks_throttle_0 = blocks.throttle(gr.sizeof_gr_complex*1, pre_resamp_rate,True)
+        self.blocks_socket_pdu_0 = blocks.socket_pdu("TCP_SERVER", "", "52002", 10000, False)
         self.blocks_repeat_0 = blocks.repeat(gr.sizeof_float*1, samp_per_sym)
+        self.blocks_pdu_to_tagged_stream_0 = blocks.pdu_to_tagged_stream(blocks.byte_t, "packet_len")
         self.blocks_null_sink_1 = blocks.null_sink(gr.sizeof_gr_complex*1)
         self.blocks_null_sink_0 = blocks.null_sink(gr.sizeof_float*1)
         self.blocks_multiply_xx_1 = blocks.multiply_vcc(1)
         self.blocks_multiply_xx_0 = blocks.multiply_vcc(1)
         self.blocks_multiply_const_vxx_1_0 = blocks.multiply_const_vff((0.5, ))
         self.blocks_multiply_const_vxx_1 = blocks.multiply_const_vff((2, ))
+        self.blocks_multiply_const_vxx_0 = blocks.multiply_const_vff((invert, ))
+        self.blocks_message_debug_0 = blocks.message_debug()
         self.blocks_float_to_complex_2 = blocks.float_to_complex(1)
         self.blocks_float_to_complex_1_0 = blocks.float_to_complex(1)
         self.blocks_float_to_complex_1 = blocks.float_to_complex(1)
@@ -124,8 +130,8 @@ class uplink(grc_wxgui.top_block_gui):
         self.blocks_add_const_vxx_1_0 = blocks.add_const_vff((0.5, ))
         self.blocks_add_const_vxx_1 = blocks.add_const_vff((-1, ))
         self.blocks_add_const_vxx_0 = blocks.add_const_vff((1.5, ))
+        self.binary_to_pdu0 = isee3.binary_to_pdu()
         self.analog_sig_source_x_0 = analog.sig_source_c(pre_resamp_rate, analog.GR_COS_WAVE, subcarrier_freq, 1, 0)
-        self.analog_random_source_x_0 = blocks.vector_source_b(map(int, numpy.random.randint(0, 2, 100000)), True)
         self.analog_quadrature_demod_cf_0 = analog.quadrature_demod_cf(2.5)
         self.analog_phase_modulator_fc_1 = analog.phase_modulator_fc(1.0)
         self.analog_frequency_modulator_fc_0 = analog.frequency_modulator_fc(float(deviation)/float(pre_resamp_rate)*3.1415*2.0)
@@ -133,13 +139,12 @@ class uplink(grc_wxgui.top_block_gui):
         ##################################################
         # Connections
         ##################################################
+        self.connect((self.blocks_pdu_to_tagged_stream_0, 0), (self.blocks_char_to_float_0, 0))
         self.connect((self.blocks_char_to_float_0, 0), (self.blocks_multiply_const_vxx_1, 0))
         self.connect((self.blocks_multiply_const_vxx_1, 0), (self.blocks_add_const_vxx_1, 0))
         self.connect((self.blocks_add_const_vxx_1, 0), (self.blocks_repeat_0, 0))
         self.connect((self.blocks_multiply_xx_0, 0), (self.blocks_complex_to_float_0, 0))
         self.connect((self.analog_frequency_modulator_fc_0, 0), (self.blocks_multiply_xx_0, 0))
-        self.connect((self.analog_random_source_x_0, 0), (self.blocks_char_to_float_0, 0))
-        self.connect((self.blocks_repeat_0, 0), (self.analog_frequency_modulator_fc_0, 0))
         self.connect((self.blocks_multiply_const_vxx_1_0, 0), (self.blocks_add_const_vxx_1_0, 0))
         self.connect((self.analog_sig_source_x_0, 0), (self.blocks_multiply_xx_0, 1))
         self.connect((self.blocks_vector_source_x_0, 0), (self.blocks_multiply_const_vxx_1_0, 0))
@@ -147,7 +152,6 @@ class uplink(grc_wxgui.top_block_gui):
         self.connect((self.blocks_add_const_vxx_1_0, 0), (self.blocks_float_to_complex_2, 1))
         self.connect((self.blocks_float_to_complex_2, 0), (self.blocks_multiply_xx_0, 2))
         self.connect((self.blocks_float_to_complex_1, 0), (self.clock_and_data, 0))
-        self.connect((self.blocks_repeat_0, 0), (self.blocks_float_to_complex_1, 0))
         self.connect((self.blocks_complex_to_float_0, 0), (self.blocks_null_sink_0, 0))
         self.connect((self.blocks_complex_to_float_0, 1), (self.analog_phase_modulator_fc_1, 0))
         self.connect((self.analog_phase_modulator_fc_1, 0), (self.blocks_multiply_xx_1, 0))
@@ -163,7 +167,16 @@ class uplink(grc_wxgui.top_block_gui):
         self.connect((self.blocks_complex_to_mag_0, 0), (self.blocks_add_const_vxx_0, 0))
         self.connect((self.blocks_add_const_vxx_0, 0), (self.blocks_float_to_complex_1_0, 1))
         self.connect((self.blocks_throttle_0, 0), (self.blocks_null_sink_1, 0))
+        self.connect((self.blocks_repeat_0, 0), (self.blocks_multiply_const_vxx_0, 0))
+        self.connect((self.blocks_multiply_const_vxx_0, 0), (self.analog_frequency_modulator_fc_0, 0))
+        self.connect((self.blocks_multiply_const_vxx_0, 0), (self.blocks_float_to_complex_1, 0))
 
+        ##################################################
+        # Asynch Message Connections
+        ##################################################
+        self.msg_connect(self.binary_to_pdu0, "pdu_out", self.blocks_pdu_to_tagged_stream_0, "pdus")
+        self.msg_connect(self.blocks_socket_pdu_0, "pdus", self.binary_to_pdu0, "binary_in")
+        self.msg_connect(self.binary_to_pdu0, "pdu_out", self.blocks_message_debug_0, "print_pdu")
 
 # QT sink close method reimplementation
 
@@ -211,8 +224,8 @@ class uplink(grc_wxgui.top_block_gui):
 
     def set_f1(self, f1):
         self.f1 = f1
-        self.set_deviation((self.f0- self.f1)/2.0)
         self.set_subcarrier_freq(self.f1+self.deviation)
+        self.set_deviation((self.f0- self.f1)/2.0)
 
     def get_f0(self):
         return self.f0
@@ -228,6 +241,12 @@ class uplink(grc_wxgui.top_block_gui):
         self.deviation = deviation
         self.set_subcarrier_freq(self.f1+self.deviation)
         self.analog_frequency_modulator_fc_0.set_sensitivity(float(self.deviation)/float(self.pre_resamp_rate)*3.1415*2.0)
+
+    def get_variable_0(self):
+        return self.variable_0
+
+    def set_variable_0(self, variable_0):
+        self.variable_0 = variable_0
 
     def get_subcarrier_freq(self):
         return self.subcarrier_freq
@@ -247,13 +266,20 @@ class uplink(grc_wxgui.top_block_gui):
 
     def set_pre_resamp_rate(self, pre_resamp_rate):
         self.pre_resamp_rate = pre_resamp_rate
-        self.analog_frequency_modulator_fc_0.set_sensitivity(float(self.deviation)/float(self.pre_resamp_rate)*3.1415*2.0)
         self.wxgui_fftsink2_0.set_sample_rate(self.pre_resamp_rate)
         self.carrier.set_sampling_freq(self.pre_resamp_rate)
         self.clock_and_data.set_sample_rate(self.pre_resamp_rate)
         self.analog_sig_source_x_0.set_sampling_freq(self.pre_resamp_rate)
         self.wxgui_scopesink2_0.set_sample_rate(self.pre_resamp_rate)
         self.blocks_throttle_0.set_sample_rate(self.pre_resamp_rate)
+        self.analog_frequency_modulator_fc_0.set_sensitivity(float(self.deviation)/float(self.pre_resamp_rate)*3.1415*2.0)
+
+    def get_invert(self):
+        return self.invert
+
+    def set_invert(self, invert):
+        self.invert = invert
+        self.blocks_multiply_const_vxx_0.set_k((self.invert, ))
 
     def get_doppler(self):
         return self.doppler

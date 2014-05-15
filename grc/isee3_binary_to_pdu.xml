@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<block>
+  <name>binary_to_pdu</name>
+  <key>binary_to_pdu </key>
+  <category>isee3</category>
+  <import>import isee3</import>
+  <make>isee3.binary_to_pdu()</make>
+
+  <sink>
+    <name>binary_in</name>
+    <type>message</type>
+    <optional>1</optional>
+  </sink>
+  <sink>
+    <name>pdu_in</name>
+    <type>message</type>
+    <optional>1</optional>
+  </sink>
+
+  <source>
+    <name>binary_out</name>
+    <type>message</type>
+    <optional>1</optional>
+  </source>
+  
+  <source>
+    <name>pdu_out</name>
+    <type>message</type>
+    <optional>1</optional>
+  </source>
+
+</block>
