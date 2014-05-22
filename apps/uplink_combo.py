@@ -25,6 +25,8 @@ class socket_cmd():
     def send_cmd(self,cmd):
         #prepend leading 0s
         #cmd = [0x55,0xFF,0x55]
+        flush = [0,1,0,1,0,1,0,1,0,1]
+        cmd = flush + cmd
         cmd = array.array('B',cmd)
         cmd_len = len(cmd)
         
@@ -62,6 +64,14 @@ class xmlrpc_client():
             print "Unexpected error:", sys.exc_info()[0]
             raise
 
+    def set_pm(self,val):
+        try:
+            self.xml_server.set_pm(val)
+        except:
+            print "Unexpected error:", sys.exc_info()[0]
+            raise
+
+
 def main():
     
     parser = OptionParser()
@@ -75,7 +85,12 @@ def main():
     parser.add_option("-y", "--xml-port",dest="xml_port", action="store", help="XML Host Port")
     parser.add_option("-t", "--interval",dest="interval", action="store", help="Time between commands. (seconds)")
     parser.add_option("-d", "--duration",dest="test_duration", action="store", help="Total time to run test (seconds)")
+    parser.add_option('-I', "--run-inversion",dest="run_inversion",action="store",help="Run data inversion")
+    parser.add_option("-m", "--pm-values",dest="pm_values", action="store", help="Phase modulaton values to test")
+    parser.add_option("-f", "--command-filename",dest="command_filename",action="store",help="File path with the command list")
+    parser.add_option("-c", "--command",dest="command",action="store",help="Specific command you would like to send")
 
+    
     (options, args) = parser.parse_args()
     
     ctrl_client = xmlrpc_client(options.xml_host,options.xml_port)
@@ -85,6 +100,22 @@ def main():
     start_freq = float(options.start_freq)
     step_freq = float(options.step_freq)
     interval = float(options.interval)
+    
+    #get contents of command file
+    try:
+        cmd_file = open(options.command_filename, "r")
+        cmd_content = cmd_file.read().split("\n")
+    
+        for i in range(len(cmd_content)):
+            cmd_content[i] = cmd_content[i].split()
+        
+        print cmd_content
+
+        #TODO - get command from list
+        
+    except Exception, ex:
+        print "Unexpected error:", sys.exc_info()[0]
+        raise
     
     preamble_length = int(options.preamble_length)
     if ( ( preamble_length + 1 + CMDLEN)/ DATARATE > interval):
@@ -96,32 +127,46 @@ def main():
     
     print "Starting frequency sweep test with %d points.  Will take %f minutes" % (points,time_to_finish/60.0)
     
-
-        
     current_freq = start_freq
     start_time = time.time()
-    
+
     #TODO pull a real array from somplace useful
     cmd = [1,1,1,0,1]
-    uplink_frame = numpy.array([0] * preamble_length + [1] + cmd)
+    uplink_frame = [0] * preamble_length + [1] + cmd
     print uplink_frame
     invert = 1
     
+    #TODO this is very
+    if float(options.run_inversion) == 1.0:
+        run_invert = -1
+    else:
+        run_invert = 1
+        
+    pm_index = 0    
+    pm_values = options.pm_values
+    pm_values = pm_values.split(",")
+    pm_values = map(float,pm_values)
+    pm_value_size = len(pm_values)
+        
     while(1):
+        ctrl_client.set_freq(current_freq)
+        time.sleep(0.003)
         cmd_client.send_cmd(uplink_frame)
+        print "Sent cmd at %.2f Hz with polarity %d, PM of %f at %f."   % (current_freq,invert,pm_values[pm_index],time.time())
         time.sleep(interval)
-        print "Sent cmd at %f with polarity %d at %f."   % (current_freq,invert,time.time())
+
+        ctrl_client.set_pm(pm_values[pm_index])
         
-        if(invert==-1):
-            ctrl_client.set_freq(current_freq)
-            current_freq += step_freq
-            if (current_freq > stop_freq):
-                print "Frequency rollover."
-                current_freq = start_freq
+        if(pm_index == (pm_value_size-1) ):
+            if (invert==1): 
+                current_freq += step_freq
+                if (current_freq > stop_freq):
+                    print "Frequency rollover."
+                    current_freq = start_freq
+            invert *= run_invert
+            ctrl_client.set_invert(invert)
         
-        invert *= -1 
-        ctrl_client.set_invert(invert)
-            
+        pm_index = ( pm_index + 1 ) % pm_value_size
         
     ctrl_client.set_freq(0)
 if __name__ == '__main__':
