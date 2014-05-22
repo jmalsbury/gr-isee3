@@ -2,7 +2,7 @@
 ##################################################
 # Gnuradio Python Flow Graph
 # Title: Uplink
-# Generated: Wed May 21 19:09:25 2014
+# Generated: Wed May 21 19:17:21 2014
 ##################################################
 
 from gnuradio import analog
@@ -44,8 +44,8 @@ class uplink(grc_wxgui.top_block_gui):
         ##################################################
         # Variables
         ##################################################
-        self.f1 = f1 = 7500.0
-        self.f0 = f0 = 9000.0
+        self.f1 = f1 = 9000.0
+        self.f0 = f0 = 7500.0
         self.deviation = deviation = (f0- f1)/2.0
         self.variable_0 = variable_0 = 0
         self.subcarrier_freq = subcarrier_freq = f1+deviation
