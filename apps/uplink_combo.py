@@ -21,12 +21,13 @@ class socket_cmd():
     def __init__(self,cmd_host,cmd_port):
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.s.connect((cmd_host, int(cmd_port)))
-    
+        print "Connected to command server (input to flowgraph)."
+
     def send_cmd(self,cmd):
         #prepend leading 0s
         #cmd = [0x55,0xFF,0x55]
         flush = [0,1,0,1,0,1,0,1,0,1]
-        cmd = flush + cmd
+        cmd = flush + cmd + flush
         cmd = array.array('B',cmd)
         cmd_len = len(cmd)
         
@@ -72,22 +73,37 @@ class xmlrpc_client():
             raise
 
 
+class log_this():
+    def __init__(self,filename):
+        try:
+            self.logfile = open(filename, "w")
+            print "Log file is open."
+        except:
+            print "Could not open file"
+            sys.exit(0)
+        
+
+    def log(self,log_str):
+        print log_str
+        self.logfile.write(log_str+"\n\r")
+    
+
+
 def main():
     
     parser = OptionParser()
-    parser.add_option("-s", "--start-freq",dest="start_freq", action="store", help="Start of frequency sweep")
-    parser.add_option("-q", "--stop-freq",dest="stop_freq", action="store", help="Stop of frequency sweep")
-    parser.add_option("-i", "--step-freq",dest="step_freq", action="store", help="Step of frequency sweep")
-    parser.add_option("-e", "--preamble-length",dest="preamble_length", action="store", help="Number of leading 0s before command is transmitted")
-    parser.add_option("-p", "--cmd-port",dest="cmd_port", action="store", help="CMD Host Port")
-    parser.add_option("-a", "--cmd-host",dest="cmd_host", action="store", help="CMD Host Address")
-    parser.add_option("-x", "--xml-host",dest="xml_host", action="store", help="XML Host address")
-    parser.add_option("-y", "--xml-port",dest="xml_port", action="store", help="XML Host Port")
-    parser.add_option("-t", "--interval",dest="interval", action="store", help="Time between commands. (seconds)")
-    parser.add_option("-d", "--duration",dest="test_duration", action="store", help="Total time to run test (seconds)")
-    parser.add_option('-I', "--run-inversion",dest="run_inversion",action="store",help="Run data inversion")
-    parser.add_option("-m", "--pm-values",dest="pm_values", action="store", help="Phase modulaton values to test")
-    parser.add_option("-f", "--command-filename",dest="command_filename",action="store",help="File path with the command list")
+    parser.add_option("-s", "--start-freq",dest="start_freq", action="store", default = 0.0, help="Start of frequency sweep")
+    parser.add_option("-q", "--stop-freq",dest="stop_freq", action="store", default = 0.0, help="Stop of frequency sweep")
+    parser.add_option("-i", "--step-freq",dest="step_freq", action="store", default = 10e3, help="Step of frequency sweep")
+    parser.add_option("-e", "--preamble-length",dest="preamble_length", action="store", default=539, help="Number of leading 0s before command is transmitted")
+    parser.add_option("-p", "--cmd-port",dest="cmd_port", action="store", default=52002, help="CMD Host Port")
+    parser.add_option("-a", "--cmd-host",dest="cmd_host", action="store", default="127.0.0.1",help="CMD Host Address")
+    parser.add_option("-x", "--xml-host",dest="xml_host", action="store", default="127.0.0.1",help="XML Host address")
+    parser.add_option("-y", "--xml-port",dest="xml_port", action="store", default=52003,help="XML Host Port")
+    parser.add_option("-t", "--interval",dest="interval", action="store", default=5.0, help="Time between commands. (seconds)")
+    parser.add_option('-I', "--run-inversion",dest="run_inversion",action="store",default=1,help="Run data inversion")
+    parser.add_option("-m", "--pm-values",dest="pm_values", action="store", default="1.2",help="Phase modulaton values to test")
+    parser.add_option("-f", "--command-filename",dest="command_filename",action="store",default="ref_cmd.txt",help="File path with the command list")
     parser.add_option("-c", "--command",dest="command",action="store",help="Specific command you would like to send")
 
     
@@ -96,67 +112,108 @@ def main():
     ctrl_client = xmlrpc_client(options.xml_host,options.xml_port)
     cmd_client = socket_cmd(options.cmd_host,options.cmd_port)
     
+    time_format = "%d_%m_%y-%H:%M:%S"
+    
+    time_str = time.strftime(time_format)
+    logger = log_this("uplink_log-"+time_str)
+    
+    
     stop_freq = float(options.stop_freq)
     start_freq = float(options.start_freq)
     step_freq = float(options.step_freq)
     interval = float(options.interval)
     
+    cmd_dict = {}
+    
     #get contents of command file
     try:
         cmd_file = open(options.command_filename, "r")
-        cmd_content = cmd_file.read().split("\n")
+        cmd_content = cmd_file.readlines()
     
-        for i in range(len(cmd_content)):
-            cmd_content[i] = cmd_content[i].split()
-        
-        print cmd_content
-
-        #TODO - get command from list
-        
+        for line in cmd_content:
+            parts = line.split("#")[0]
+                
+            parts = parts.split()
+            if len(parts) == 2:
+                if parts[0] in cmd_dict.keys():
+                    print "Warning: command %s occurs in command file %s more than once!" % (parts[0],options.command_filename)
+                    sys.exit(0)
+                if len(parts[1]) != 60:
+                    print "Warning: command %s in command file %s does not have 60 bits.  Had %d" % (parts[0],options.command_filename,len(parts[1]))
+                    sys.exit(0)
+                cmd_dict[parts[0]] = parts[1]
+            
+        if options.command in cmd_dict.keys():
+            cmd = cmd_dict[options.command]
+            cmd = list(cmd)
+            for i in range(len(cmd)):
+                cmd[i] = int(cmd[i])            
+            preamble_length = int(options.preamble_length)
+            uplink_frame = [0] * preamble_length + [1] + cmd
+        else:
+            logger.log("Could not find command '%s' in file %s" % (options.command,options.command_filename))
+            sys.exit(0)
+                
     except Exception, ex:
         print "Unexpected error:", sys.exc_info()[0]
         raise
+        
+    if options.start_freq or options.stop_freq:
+        if not (options.start_freq and options.stop_freq) and ( options.start_freq < options.step_freq ):
+            print "Must specify both start and stop frequency, not just one.  Start freq must be less than stop freq"
     
-    preamble_length = int(options.preamble_length)
-    if ( ( preamble_length + 1 + CMDLEN)/ DATARATE > interval):
-        print "WARNING WARNING WARNING: Interval %f too short for uplink packet with %d bits (including preamble)." % (interval,preamble_length + 1 + 61) 
-        time.sleep(5) 
     
-    points = math.floor((stop_freq - start_freq)/step_freq)
-    time_to_finish = points * interval
-    
-    print "Starting frequency sweep test with %d points.  Will take %f minutes" % (points,time_to_finish/60.0)
-    
-    current_freq = start_freq
-    start_time = time.time()
-
-    #TODO pull a real array from somplace useful
-    cmd = [1,1,1,0,1]
-    uplink_frame = [0] * preamble_length + [1] + cmd
-    print uplink_frame
-    invert = 1
-    
-    #TODO this is very
-    if float(options.run_inversion) == 1.0:
+    if int(options.run_inversion) == 1:
         run_invert = -1
+        inv_mult = 2                             #used to calc num of points
     else:
         run_invert = 1
-        
+        inv_mult = 1
+    
+    #Get pm values
     pm_index = 0    
     pm_values = options.pm_values
     pm_values = pm_values.split(",")
     pm_values = map(float,pm_values)
     pm_value_size = len(pm_values)
-        
+    
+    #count all bits - preamble, sync bit, cmd length, start and end pad (10 bits), determine if they fit in specified interval
+    if ( ( preamble_length + 1 + CMDLEN + 10 + 10)/ DATARATE > interval):
+        print "WARNING WARNING WARNING: Interval %f too short for uplink packet with %d bits (including preamble)." % (interval,preamble_length + 1 + 60 + 20) 
+        time.sleep(5) 
+
+    #Calculate number of points and time
+    points = (math.floor((stop_freq - start_freq)/step_freq)+1) * inv_mult * pm_value_size
+    time_to_finish = points * interval
+    logger.log( "Test has %d points.  Will take %f minutes to complete." % (points,time_to_finish/60.0))
+
+    #Log the paramters of this run
+    logger.log("Start Time: %s" % time.strftime("%d/%m/%y %H:%M:%S"))
+    logger.log("Command Name: %s" % options.command)
+    logger.log("Using command: " + str(cmd))
+    logger.log("Interval: %f" % interval)
+    logger.log("Preamble Lenght: %d" % preamble_length)
+    logger.log("Start Freq: %.2f  Stop Freq: %.2f  Step Freq: %.2f" % (start_freq,stop_freq,step_freq))
+    logger.log("XML Port: %d XML Host %s" % (int(options.xml_port),options.xml_host))
+    logger.log("CMD Port: %d CMD Host %s" % (int(options.cmd_port),options.cmd_host))
+    logger.log("Pulling commands from: %s" % options.command)
+    
+    
+    #initialize some things before we start the loop
+    current_freq = start_freq    
+    start_time = time.time()
+    invert = 1
+            
     while(1):
         ctrl_client.set_freq(current_freq)
-        time.sleep(0.003)
+        ctrl_client.set_pm(pm_values[pm_index])
+        ctrl_client.set_invert(invert)
+        time.sleep(0.005)
         cmd_client.send_cmd(uplink_frame)
-        print "Sent cmd at %.2f Hz with polarity %d, PM of %f at %f."   % (current_freq,invert,pm_values[pm_index],time.time())
+        logger.log("Sent cmd at %.2f Hz with polarity %d, PM of %f at %s."   % (current_freq,invert,pm_values[pm_index],time.strftime("%d/%m/%y %H:%M:%S")))
         time.sleep(interval)
 
-        ctrl_client.set_pm(pm_values[pm_index])
-        
+    
         if(pm_index == (pm_value_size-1) ):
             if (invert==1): 
                 current_freq += step_freq
@@ -164,7 +221,7 @@ def main():
                     print "Frequency rollover."
                     current_freq = start_freq
             invert *= run_invert
-            ctrl_client.set_invert(invert)
+            
         
         pm_index = ( pm_index + 1 ) % pm_value_size
         
