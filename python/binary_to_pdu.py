@@ -91,39 +91,37 @@ class binary_to_pdu(gr.basic_block):
 
         buf = payload
         
-        print buf
+        #print buf
         
         for i in buf:
             if self.rx_state == GET_FEND:
                 if i == FEND:
                     self.rx_state = GET_LEN
                     self.count = 0 
-                    self.incoming_len = 0 
-                    
+                    self.incoming_len = 0
                     
             elif self.rx_state == GET_LEN:
-                self.incoming_len |= ( ( i & 0xFF ) << ( 8 * (3 - self.count ) ) ) 
+                self.incoming_len |= ( ( i & 0xFF ) << ( 8 * (3 - self.count ) ) )
                 self.count += 1
                 if self.count == 4:
-                    #print "PDU Link(TTY): Receiving Payload Frame of Lenght:",self.incoming_len,self.last_time - time.time()
+                    #print "PDU Link(TTY): Receiving Payload Frame of Length:",self.incoming_len,self.last_time - time.time()
+                    print "<binary_to_pdu> Receiving Payload Frame of Length:", self.incoming_len
                     self.last_time = time.time()
                     if self.incoming_len < 2048:
-                        self.count = 0 
+                        self.count = 0
                         self.rx_state = GET_PAYLOAD
                     else:
                         print "Received unreasonable payload length: ",self.incoming_len, "Aborting!"
                         self.rx_state = GET_FEND
-
-                    
+            
             elif self.rx_state == GET_PAYLOAD:
                 #print self.count,len(self.out_buf),self.incoming_len
-                self.out_buf[self.count] = i 
-                self.count += 1 
+                self.out_buf[self.count] = i
+                self.count += 1
                 if self.count == self.incoming_len:
                     #print buf
                     self.rx_state = GET_FEND
                     packet = self.out_buf[0:self.incoming_len]
+                    print "<binary_to_pdu>", packet
                     self.message_port_pub(pmt.intern('pdu_out'),pmt.cons(pmt.PMT_NIL,pmt.init_u8vector(len(packet),packet)))
                     self.count = 0
-                
-            
