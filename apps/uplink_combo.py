@@ -1,18 +1,7 @@
 #!/usr/bin/env python
-import serial
-from serial.tools import list_ports
-import os
+import os, io, time, random, sys, string, serial, array, xmlrpclib, math, socket, datetime
 from optparse import OptionParser
-import io
-import time
-import random
-import sys
-import string
-import serial
-import array
-import xmlrpclib
-import math
-import socket
+from serial.tools import list_ports
 import numpy
 
 DATARATE = 256
@@ -76,7 +65,7 @@ class xmlrpc_client():
             raise
 
 class log_this():
-    def __init__(self,filename):
+    def __init__(self, filename, time_format):
         try:
             self.logfile = open(filename, "w")
             print "Log file is open:", filename
@@ -84,43 +73,54 @@ class log_this():
             print "Could not open file"
             sys.exit(0)
 
-    def log(self,log_str):
+    def log(self, log_str, time=None):
+        if time is None:
+            time = datetime.datetime.now()
+        log_str = str(time) + " " + log_str
         print log_str
-        self.logfile.write(log_str+"\r\n")
+        self.logfile.write(log_str + "\r\n")
 
 def main():
     parser = OptionParser()
     
-    parser.add_option("-s", "--start-freq", type="float", default = 0.0, help="Start of frequency sweep [default=%default]")
-    parser.add_option("-q", "--stop-freq", type="float", default = 0.0, help="Stop of frequency sweep [default=%default]")
-    parser.add_option("-i", "--step-freq", type="float", default = 10e3, help="Step of frequency sweep [default=%default]")
+    parser.add_option("-s", "--start-freq", type="float", default=None, help="Start of frequency sweep [default=%default]")
+    parser.add_option("-q", "--stop-freq", type="float", default=None, help="Stop of frequency sweep [default=%default]")
+    parser.add_option("-i", "--step-freq", type="float", default=10e3, help="Step of frequency sweep [default=%default]")
+    parser.add_option("-t", "--interval", type="float", default=5.0, help="Time between commands. (seconds) [default=%default]")
+    parser.add_option("-S", "--start-offset", type="float", default=None, help="offset start (Hz) [default=%default]")
+    
     parser.add_option("-e", "--preamble-length", type="int", default=539, help="Number of leading 0s before command is transmitted [default=%default]")
     parser.add_option("-p", "--cmd-port", type="int", default=52002, help="CMD Host Port [default=%default]")
     parser.add_option("-a", "--cmd-host", type="string", default="127.0.0.1",help="CMD Host Address [default=%default]")
     parser.add_option("-x", "--xml-host", type="string", default="127.0.0.1",help="XML Host address [default=%default]")
     parser.add_option("-y", "--xml-port", type="int", default=52003,help="XML Host Port [default=%default]")
-    parser.add_option("-t", "--interval", type="float", default=5.0, help="Time between commands. (seconds) [default=%default]")
     parser.add_option('-I', "--run-inversion",action="store_true",default=False,help="Run data inversion [default=%default]")
     parser.add_option("-m", "--pm-values", type="string", default="1.0",help="Phase modulaton values to test [default=%default]")
     parser.add_option("-f", "--command-filename",type="string",default="ref_cmd.txt",help="File path with the command list [default=%default]")
     parser.add_option("-c", "--command",type="string",help="Specific commands you would like to send (comma delimited)")
     parser.add_option("-F", "--flush", type="int", default=10, help="bits of front/rear padding [default=%default]")
     parser.add_option('-C', "--clocked-flush",action="store_true",default=False,help="clocked flush (alternating 0/1) [default=%default]")
+    parser.add_option('-d', "--drop-carrier",action="store_true",default=False, help="separate individual commands in a sequence [default=%default]")
+    parser.add_option('-l', "--loop",action="store_true",default=False, help="loop sending [default=%default]")
+    parser.add_option("-T", "--stitch-delay", type="int", default=DATARATE, help="# of bits between coalesced commands [default=%default]")
+    parser.add_option("-D", "--rollover-delay", type="float", default=0.0, help="seconds to wait on rollover [default=%default]")
+    parser.add_option('-w', "--sweep",action="store_true",default=False, help="sweep back and forth [default=%default]")
+    parser.add_option('-W', "--sweep-direction", type="float", default=1.0, help="+/- 1.0 sweep direction [default=%default]")
     
     (options, args) = parser.parse_args()
     
     ctrl_client = xmlrpc_client(options.xml_host,options.xml_port)
     cmd_client = socket_cmd(options.cmd_host,options.cmd_port)
     
-    time_format = "%Y_%m_%d-%H:%M:%S"
+    time_format = "%Y_%m_%d-%H_%M_%S"
     
     time_str = time.strftime(time_format)
-    logger = log_this("uplink-" + time_str + ".log")
     
     stop_freq = float(options.stop_freq)
     start_freq = float(options.start_freq)
     step_freq = float(options.step_freq)
     interval = float(options.interval)
+    preamble_length = int(options.preamble_length)
     
     cmd_dict = {}
     cmds = []
@@ -129,7 +129,7 @@ def main():
     try:
         cmd_file = open(options.command_filename, "r")
         cmd_content = cmd_file.readlines()
-    
+        
         for line in cmd_content:
             line = line.strip()
             
@@ -167,26 +167,46 @@ def main():
                 cmd = map(int, list(cmd))
                 #for i in range(len(cmd)):
                 #    cmd[i] = int(cmd[i])
-                preamble_length = int(options.preamble_length)
-                uplink_frame = flush + ([0] * preamble_length) + [1] + cmd + flush
-                print "Uplink '%s' frame length: %d (preamble length: %d, command length: %d, flush length: %d)" % (command, len(uplink_frame), preamble_length, len(cmd), len(flush))
-                frame_tx_duration = 1.0*len(uplink_frame)/DATARATE
-                if frame_tx_duration > interval:
-                    print "Interval %f sec not long enough for frame transmission (%f sec)" % (interval, frame_tx_duration)
-                    sys.exit(0)
-                cmds += [(command, uplink_frame)]
+                if options.drop_carrier:
+                    uplink_frame = flush + ([0] * preamble_length) + [1] + cmd + flush
+                    print "Uplink '%s' frame length: %d (preamble length: %d, command length: %d, flush length: %d)" % (command, len(uplink_frame), preamble_length, len(cmd), len(flush))
+                    frame_tx_duration = 1.0 * len(uplink_frame) / DATARATE
+                    if frame_tx_duration > interval:
+                        print "Interval %f sec not long enough for frame transmission (%f sec)" % (interval, frame_tx_duration)
+                        sys.exit(0)
+                    cmds += [(command, uplink_frame)]
+                else:
+                    uplink_frame = ([0] * options.stitch_delay) + [1] + cmd
+                    print "Uplink '%s' frame length: %d (stitch delay: %d, command length: %d)" % (command, len(uplink_frame), options.stitch_delay, len(cmd))
+                    if len(cmds) == 0:
+                        cmds = [(command,uplink_frame)]
+                    else:
+                        existing_command, existing_uplink_frame = cmds[0]
+                        cmds = [(existing_command + "," + command, existing_uplink_frame + uplink_frame)]
             else:
                 logger.log("Could not find command '%s' in file %s" % (options.command,options.command_filename))
                 sys.exit(0)
+        
+        if not options.drop_carrier:
+            (existing_command, existing_uplink_frame) = cmds[0]
+            existing_uplink_frame = flush + ([0] * preamble_length) + existing_uplink_frame + flush
+            cmds = [(existing_command, existing_uplink_frame)]
+            frame_tx_duration = 1.0 * len(existing_uplink_frame) / DATARATE
+            logger.log("Total command duration: %f sec" % (frame_tx_duration))
+            if frame_tx_duration > interval:
+                print "Changing interval to frame duration"
+                interval = frame_tx_duration
     
     except Exception, ex:
         print "Unexpected error:", sys.exc_info()[0]
         raise
     
-    if options.start_freq or options.stop_freq:
-        if not (options.start_freq and options.stop_freq) and ( options.start_freq < options.step_freq ):
+    if options.start_freq is not None or options.stop_freq is not None:
+        if not (options.start_freq is not None and options.stop_freq is not None) and ( options.start_freq < options.stop_freq ):
             print "Must specify both start and stop frequency, not just one.  Start freq must be less than stop freq"
             sys.exit(0)
+    
+    logger = log_this("uplink-" + time_str + ".log")
     
     if options.run_inversion:
         print "Running inversion"
@@ -213,22 +233,25 @@ def main():
     points = (math.floor((stop_freq - start_freq)/step_freq)+1) * inv_mult * pm_value_size
     time_to_finish = points * interval * len(cmds)
     logger.log( "Test has %d points.  Will take %f minutes to complete." % (points,time_to_finish/60.0))
-
+    
     #Log the paramters of this run
     logger.log("Start Time: %s" % time.strftime("%d/%m/%y %H:%M:%S"))
     logger.log("Command Names: %s" % options.command)
     #logger.log("Using command: " + str(cmd))
     logger.log("Interval: %f" % interval)
     logger.log("Preamble Lenght: %d" % preamble_length)
-    logger.log("Start Freq: %.2f  Stop Freq: %.2f  Step Freq: %.2f" % (start_freq,stop_freq,step_freq))
+    logger.log("Start Freq: %.2f, Stop Freq: %.2f, Step Freq: %.2f, Start Offset: %.2f" % (start_freq, stop_freq, step_freq, options.start_offset))
     logger.log("XML Port: %d XML Host %s" % (int(options.xml_port),options.xml_host))
     logger.log("CMD Port: %d CMD Host %s" % (int(options.cmd_port),options.cmd_host))
-    logger.log("Pulling commands from: %s" % options.command)
+    logger.log("Pulling commands from: %s" % options.command_filename)
     
     #initialize some things before we start the loop
-    current_freq = start_freq    
+    current_freq = start_freq
+    if options.start_offset is not None:
+        current_freq = options.start_offset
     start_time = time.time()
     invert = 1
+    sweep_direction = options.sweep_direction
     
     try:
         while True:
@@ -246,11 +269,22 @@ def main():
             
             if (pm_index == (pm_value_size-1)):
                 if (invert==1):
-                    current_freq += step_freq
-                    if (current_freq > stop_freq):
-                        print "Frequency rollover."
-                        time.sleep(1.0)
-                        current_freq = start_freq
+                    #current_freq += step_freq
+                    current_freq += (sweep_direction * step_freq)
+                    if ((sweep_direction > 0) and (current_freq > stop_freq)) or ((sweep_direction < 0) and (current_freq < start_freq)):
+                        print "Frequency rollover (direction: %f)." % (sweep_direction)
+                        if not options.loop:
+                            break
+                        time.sleep(options.rollover_delay)
+                        if options.sweep:
+                            sweep_direction *= -1.0
+                            #current_freq += (sweep_direction * step_freq)
+                            if sweep_direction < 0.0:
+                                current_freq = stop_freq
+                            else:
+                                current_freq = start_freq
+                        else:
+                            current_freq = start_freq
                 invert *= run_invert
             
             pm_index = ( pm_index + 1 ) % pm_value_size

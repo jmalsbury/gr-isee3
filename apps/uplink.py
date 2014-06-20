@@ -2,7 +2,7 @@
 ##################################################
 # Gnuradio Python Flow Graph
 # Title: Uplink
-# Generated: Thu May 29 15:10:45 2014
+# Generated: Wed Jun 18 16:22:49 2014
 ##################################################
 
 from gnuradio import analog
@@ -65,7 +65,7 @@ class uplink(grc_wxgui.top_block_gui):
         self.deviation = deviation = (f1 - f0) / 2.0
         self.tx_gain_user = tx_gain_user = tx_gain
         self.subcarrier_freq = subcarrier_freq = f0 + deviation
-        self.source = source = 'external'
+        self.source = source = ''
         self.pm_txt = pm_txt = pm
         self.nominal_uplink_freq_user = nominal_uplink_freq_user = nominal_uplink_freq_chooser
         self.lo_off_user = lo_off_user = lo_off
@@ -214,7 +214,7 @@ class uplink(grc_wxgui.top_block_gui):
         )
         self.nb.GetPage(0).Add(self.wxgui_fftsink2_0.win)
         self.uhd_usrp_sink_0 = uhd.usrp_sink(
-        	",".join(("serial=F4A7C3", "")),
+        	",".join(("", "")),
         	uhd.stream_args(
         		cpu_format="fc32",
         		channels=range(1),
@@ -222,8 +222,6 @@ class uplink(grc_wxgui.top_block_gui):
         	"",
         	True,
         )
-        self.uhd_usrp_sink_0.set_clock_source(source, 0)
-        self.uhd_usrp_sink_0.set_time_source(source, 0)
         self.uhd_usrp_sink_0.set_samp_rate(samp_rate)
         self.uhd_usrp_sink_0.set_center_freq(uhd.tune_request(nominal_uplink_freq_user,lo_off_user), 0)
         self.uhd_usrp_sink_0.set_gain(tx_gain*0 + tx_gain_user, 0)
